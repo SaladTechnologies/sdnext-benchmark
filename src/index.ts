@@ -8,15 +8,17 @@ const { SDNEXT_URL = "http://localhost:7860", OUTPUT_DIR="images", BENCHMARK_SIZ
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
 
+const testJob = {
+  prompt: "cat",
+  steps: 35,
+  width: 1216,
+  height: 896,
+  send_images: true,
+  cfg_scale: .7
+};
+
 async function getJob(): Promise<Text2ImageRequest> {
-  return {
-    prompt: "cat",
-    steps: 35,
-    width: 1216,
-    height: 896,
-    send_images: true,
-    cfg_scale: .7
-  };
+  return testJob;
 }
 
 async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
@@ -77,8 +79,7 @@ async function main(): Promise<void> {
   await waitForServerToStart();
 
   // This serves as the final pre-flight check
-  const job = await getJob();
-  let response = await submitJob(job);
+  let response = await submitJob(testJob);
 
   let numImages = 0;
   const start = Date.now();
