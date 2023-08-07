@@ -2,18 +2,24 @@ import { Text2ImageRequest, Text2ImageResponse, ServerStatus } from "./types";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const { SDNEXT_URL = "http://localhost:7860", OUTPUT_DIR="images", BENCHMARK_SIZE = "10", BATCH_SIZE="4" } = process.env;
-
-const stats: any[] = [];
-
-async function recordResult(result: { numImages: number, time: number}): Promise<void> {
-  stats.push(result);
-}
+const { 
+  SDNEXT_URL = "http://localhost:7860", 
+  OUTPUT_DIR="images", 
+  BENCHMARK_SIZE = "10", 
+  BATCH_SIZE="4" 
+} = process.env;
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
 const batchSize = parseInt(BATCH_SIZE, 10);
 
-const testJob = {
+/**
+ * This is the job that will be submitted to the server,
+ * set to the configured batch size.
+ * 
+ * You can change this to whatever you want, and there are a lot
+ * of options. See the SDNext API docs for more info.
+ */
+const testJob: Text2ImageRequest = {
   prompt: "cat",
   steps: 35,
   width: 1216,
@@ -22,10 +28,31 @@ const testJob = {
   cfg_scale: .7,
 };
 
+/**
+ * You can replace this function with your own implementation.
+ * Could be submitting stats to a database, or to an api, or just
+ * printing to the console.
+ */
+const stats: any[] = [];
+async function recordResult(result: { numImages: number, time: number}): Promise<void> {
+  stats.push(result);
+}
+
+
+/**
+ * You can replace this function with your own implementation.
+ * 
+ * @returns A job to submit to the server
+ */
 async function getJob(): Promise<Text2ImageRequest> {
   return {...testJob, batch_size: batchSize};
 }
 
+/**
+ * Submits a job to the SDNext server and returns the response.
+ * @param job The job to submit to the server
+ * @returns The response from the server
+ */
 async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
   // POST to SDNEXT_URL
   const url = new URL("/sdapi/v1/txt2img", SDNEXT_URL);
@@ -41,6 +68,11 @@ async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
   return json as Text2ImageResponse;
 }
 
+/**
+ * If you are actually trying to keep your images, you should
+ * probably upload to a bucket or something. This is a placeholder
+ * function that just writes the image to the local filesystem.
+ */
 let numImages = 0;
 async function uploadImage(image: string): Promise<string> {
   const filename = path.join(OUTPUT_DIR, `image-${numImages++}.jpg`);
@@ -48,6 +80,10 @@ async function uploadImage(image: string): Promise<string> {
   return filename;
 }
 
+/**
+ * Uses the status endpoint to get the status of the SDNext server.
+ * @returns The status of the SDNext server
+ */
 async function getServerStatus(): Promise<ServerStatus> {
   const url = new URL("/sdapi/v1/system-info/status?state=true&memory=true&full=true&refresh=true", SDNEXT_URL);
   const response = await fetch(url.toString());
@@ -55,6 +91,10 @@ async function getServerStatus(): Promise<ServerStatus> {
   return json as ServerStatus;
 }
 
+/**
+ * 
+ * @returns The last 5 lines of the SDNext server logs
+ */
 async function getSDNextLogs(): Promise<string[]> {
   const url = new URL("/sdapi/v1/log?lines=5&clear=true", SDNEXT_URL);
   const response = await fetch(url.toString());
@@ -70,11 +110,20 @@ let stayAlive = true;
 process.on("SIGINT", () => {
   stayAlive = false;
 });
+
 process.on("exit", () => {
+  /**
+   * This is where to put any cleanup code,
+   * or a last chance to fire stats off to wherever they live.
+   */
   stayAlive = false;
   // prettyPrint(stats);
 });
 
+
+/**
+ * Waits for the SDNext server to start listening at the configured URL.
+ */
 async function waitForServerToStart(): Promise<void> {
   const maxAttempts = 300;
   let attempts = 0;
@@ -89,6 +138,10 @@ async function waitForServerToStart(): Promise<void> {
   }
 }
 
+/**
+ * Waits for the SDNext server to finish loading the model.
+ * This is done by checking the logs for the "Startup time:" line.
+ */
 async function waitForModelToLoad(): Promise<void> {
   const maxAttempts = 300;
   const maxFailures = 10;
@@ -118,8 +171,17 @@ async function waitForModelToLoad(): Promise<void> {
   throw new Error("Timed out waiting for model to load");
 }
 
+/**
+ * This is a helper function to pretty print an object,
+ * useful for debugging.
+ * @param obj The object to pretty print
+ * @returns 
+ */
 const prettyPrint = (obj: any): void => console.log(JSON.stringify(obj, null, 2));
 
+/**
+ * This is the main function that runs the benchmark.
+ */
 async function main(): Promise<void> {
   const loadStart = Date.now();
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
@@ -149,6 +211,8 @@ async function main(): Promise<void> {
     recordResult({numImages: response.images.length, time: jobElapsed});
     numImages += response.images.length;
 
+    // Handle the image uploads asynchronously, so we can start the next job
+    // while the images are uploading.
     Promise.all(response.images.map(uploadImage)).then((filenames) => {
       console.log(filenames);
     });
