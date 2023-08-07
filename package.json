@@ -1,5 +1,6 @@
 {
   "author": "Shawn Rushefsky",
+  "bin": "./dist/index.js",
   "bugs": {
     "url": "https://github.com/SaladTechnologies/sdnext-benchmark/issues"
   },

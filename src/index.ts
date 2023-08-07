@@ -76,11 +76,15 @@ async function main(): Promise<void> {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   await waitForServerToStart();
 
+  // This serves as the final pre-flight check
+  const job = await getJob();
+  let response = await submitJob(job);
+
   let numImages = 0;
   const start = Date.now();
-  while (stayAlive && numImages < benchmarkSize) {
+  while (stayAlive && (benchmarkSize < 0 || numImages < benchmarkSize)) {
     const job = await getJob();
-    const response = await submitJob(job);
+    response = await submitJob(job);
     numImages += response.images.length;
 
     Promise.all(response.images.map(uploadImage)).then((filenames) => {
