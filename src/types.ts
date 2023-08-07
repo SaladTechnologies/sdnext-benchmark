@@ -161,3 +161,4 @@ export interface Device {
   vae: string
   unet: string
 }
+

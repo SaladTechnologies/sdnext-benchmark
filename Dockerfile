@@ -19,11 +19,8 @@ CMD [\
   "${INSTALLDIR}/entrypoint.sh \
   --listen \
   --no-download \
-  --skip-torch \
   --backend diffusers \
   --use-cuda \
-  --skip-requirements \
-  --skip-extensions \
-  --skip-git \
-  --ckpt model.safetensors \
+  --ckpt ${CKPT} \
+  --docs \
   & benchmark-worker/sdnext-benchmark"]

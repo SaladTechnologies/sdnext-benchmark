@@ -2,7 +2,7 @@ import { Text2ImageRequest, Text2ImageResponse, ServerStatus } from "./types";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const { SDNEXT_URL = "http://localhost:7860", OUTPUT_DIR="images", BENCHMARK_SIZE = "10" } = process.env;
+const { SDNEXT_URL = "http://localhost:7860", OUTPUT_DIR="images", BENCHMARK_SIZE = "10", BATCH_SIZE="4" } = process.env;
 
 const stats: any[] = [];
 
@@ -11,6 +11,7 @@ async function recordResult(result: { numImages: number, time: number}): Promise
 }
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
+const batchSize = parseInt(BATCH_SIZE, 10);
 
 const testJob = {
   prompt: "cat",
@@ -22,7 +23,7 @@ const testJob = {
 };
 
 async function getJob(): Promise<Text2ImageRequest> {
-  return {...testJob, batch_size: 4};
+  return {...testJob, batch_size: batchSize};
 }
 
 async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
@@ -33,7 +34,7 @@ async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
     body: JSON.stringify(job),
     headers: {
       "Content-Type": "application/json"
-    }
+    },
   });
 
   const json = await response.json();
@@ -54,6 +55,13 @@ async function getServerStatus(): Promise<ServerStatus> {
   return json as ServerStatus;
 }
 
+async function getSDNextLogs(): Promise<string[]> {
+  const url = new URL("/sdapi/v1/log?lines=5&clear=true", SDNEXT_URL);
+  const response = await fetch(url.toString());
+  const json = await response.json();
+  return json as string[];
+}
+
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -64,32 +72,67 @@ process.on("SIGINT", () => {
 });
 process.on("exit", () => {
   stayAlive = false;
-  prettyPrint(stats);
+  // prettyPrint(stats);
 });
 
 async function waitForServerToStart(): Promise<void> {
-  const maxAttempts = 100;
+  const maxAttempts = 300;
   let attempts = 0;
   while (stayAlive && attempts++ < maxAttempts) {
     try {
       await getServerStatus();
       return;
     } catch (e) {
-      console.log("Waiting for server to start...");
+      console.log(`(${attempts}/${maxAttempts}) Waiting for server to start...`);
       await sleep(1000);
     }
   }
 }
 
+async function waitForModelToLoad(): Promise<void> {
+  const maxAttempts = 300;
+  const maxFailures = 10;
+  let attempts = 0;
+  let failures = 0;
+  while (stayAlive && attempts++ < maxAttempts) {
+    try {
+      const logLines = await getSDNextLogs();
+      if (logLines.some((line) => line.includes("Startup time:"))) {
+        return;
+      } else if (logLines.length > 0) {
+        prettyPrint(logLines);
+      }
+        
+      console.log(`(${attempts}/${maxAttempts}) Waiting for model to load...`);
+    } catch(e: any) {
+      
+      failures++;
+      if (failures > maxFailures) {
+        throw e;
+      }
+      console.log(`(${failures}/${maxFailures}) Request failed. Retrying...`);
+    }
+    
+    await sleep(1000);
+  }
+  throw new Error("Timed out waiting for model to load");
+}
+
 const prettyPrint = (obj: any): void => console.log(JSON.stringify(obj, null, 2));
 
 async function main(): Promise<void> {
-
+  const loadStart = Date.now();
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   await waitForServerToStart();
+  await waitForModelToLoad();
+  
 
   // This serves as the final pre-flight check
   let response = await submitJob(testJob);
+
+  const loadEnd = Date.now();
+  const loadElapsed = loadEnd - loadStart;
+  console.log(`Server fully warm in ${loadElapsed}ms`);
 
   let numImages = 0;
   const start = Date.now();
