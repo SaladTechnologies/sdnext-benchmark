@@ -4,7 +4,11 @@ import path from "node:path";
 
 const { SDNEXT_URL = "http://localhost:7860", OUTPUT_DIR="images", BENCHMARK_SIZE = "10" } = process.env;
 
+const stats: any[] = [];
 
+async function recordResult(result: { numImages: number, time: number}): Promise<void> {
+  stats.push(result);
+}
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
 
@@ -14,11 +18,11 @@ const testJob = {
   width: 1216,
   height: 896,
   send_images: true,
-  cfg_scale: .7
+  cfg_scale: .7,
 };
 
 async function getJob(): Promise<Text2ImageRequest> {
-  return testJob;
+  return {...testJob, batch_size: 4};
 }
 
 async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
@@ -58,9 +62,15 @@ let stayAlive = true;
 process.on("SIGINT", () => {
   stayAlive = false;
 });
+process.on("exit", () => {
+  stayAlive = false;
+  prettyPrint(stats);
+});
 
 async function waitForServerToStart(): Promise<void> {
-  while (stayAlive) {
+  const maxAttempts = 100;
+  let attempts = 0;
+  while (stayAlive && attempts++ < maxAttempts) {
     try {
       await getServerStatus();
       return;
@@ -84,8 +94,16 @@ async function main(): Promise<void> {
   let numImages = 0;
   const start = Date.now();
   while (stayAlive && (benchmarkSize < 0 || numImages < benchmarkSize)) {
+    console.log("Fetching Job...");
     const job = await getJob();
+
+    console.log("Submitting Job...");
+    const jobStart = Date.now();
     response = await submitJob(job);
+    const jobEnd = Date.now();
+    const jobElapsed = jobEnd - jobStart;
+    console.log(`${response.images.length} images generated in ${jobElapsed}ms`);
+    recordResult({numImages: response.images.length, time: jobElapsed});
     numImages += response.images.length;
 
     Promise.all(response.images.map(uploadImage)).then((filenames) => {

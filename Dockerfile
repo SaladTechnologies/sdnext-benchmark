@@ -13,4 +13,17 @@ FROM saladtechnologies/sdnext-sdxl10:latest
 COPY --from=build /app/benchmark-worker ./benchmark-worker
 
 ENTRYPOINT []
-CMD [ "/bin/bash", "-c", "${INSTALLDIR}/entrypoint.sh --listen --no-download --skip-torch & benchmark-worker/sdnext-benchmark"]
+CMD [\
+  "/bin/bash",\
+  "-c",\
+  "${INSTALLDIR}/entrypoint.sh \
+  --listen \
+  --no-download \
+  --skip-torch \
+  --backend diffusers \
+  --use-cuda \
+  --skip-requirements \
+  --skip-extensions \
+  --skip-git \
+  --ckpt model.safetensors \
+  & benchmark-worker/sdnext-benchmark"]
