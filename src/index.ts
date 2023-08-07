@@ -100,7 +100,7 @@ async function waitForModelToLoad(): Promise<void> {
       if (logLines.some((line) => line.includes("Startup time:"))) {
         return;
       } else if (logLines.length > 0) {
-        prettyPrint(logLines);
+        // prettyPrint(logLines);
       }
         
       console.log(`(${attempts}/${maxAttempts}) Waiting for model to load...`);
