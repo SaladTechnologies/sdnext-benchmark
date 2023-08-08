@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  sdxl-benchmark:
+    image: saladtechnologies/sdxl-benchmark:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    environment:
+      BENCHMARK_SIZE: 10
+      BATCH_SIZE: 4
+      REPORTING_URL: ${REPORTING_URL:-https://localhost:3000}
+      REPORTING_API_KEY: ${REPORTING_API_KEY:-1234567890}
+      BENCHMARK_NAME: sdxl-benchmark-test
+      OUTPUT_DIR: /images
+    volumes:
+      - ./images:/images

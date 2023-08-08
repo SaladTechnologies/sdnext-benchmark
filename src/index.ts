@@ -6,7 +6,11 @@ const {
   SDNEXT_URL = "http://localhost:7860", 
   OUTPUT_DIR="images", 
   BENCHMARK_SIZE = "10", 
-  BATCH_SIZE="4" 
+  BATCH_SIZE="4",
+  REPORTING_URL = "http://localhost:3000",
+  REPORTING_AUTH_HEADER = "Benchmark-Api-Key",
+  REPORTING_API_KEY = "abc1234567890",
+  BENCHMARK_ID = "test",
 } = process.env;
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
@@ -33,9 +37,16 @@ const testJob: Text2ImageRequest = {
  * Could be submitting stats to a database, or to an api, or just
  * printing to the console.
  */
-const stats: any[] = [];
-async function recordResult(result: { numImages: number, time: number}): Promise<void> {
-  stats.push(result);
+async function recordResult(result: { numImages: number, time: number, params: Text2ImageRequest}): Promise<void> {
+  const url = new URL("/" + BENCHMARK_ID, REPORTING_URL);
+  await fetch(url.toString(), {
+    method: "POST",
+    body: JSON.stringify(result),
+    headers: {
+      "Content-Type": "application/json",
+      [REPORTING_AUTH_HEADER]: REPORTING_API_KEY,
+    },
+  });
 }
 
 
@@ -116,8 +127,6 @@ process.on("exit", () => {
    * This is where to put any cleanup code,
    * or a last chance to fire stats off to wherever they live.
    */
-  stayAlive = false;
-  // prettyPrint(stats);
 });
 
 
@@ -208,7 +217,7 @@ async function main(): Promise<void> {
     const jobEnd = Date.now();
     const jobElapsed = jobEnd - jobStart;
     console.log(`${response.images.length} images generated in ${jobElapsed}ms`);
-    recordResult({numImages: response.images.length, time: jobElapsed});
+    recordResult({numImages: response.images.length, time: jobElapsed, params: job});
     numImages += response.images.length;
 
     // Handle the image uploads asynchronously, so we can start the next job

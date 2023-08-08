@@ -28,4 +28,5 @@ CMD [\
   --use-cuda \
   --ckpt ${CKPT} \
   --docs \
+  --quick \
   & benchmark-worker/sdnext-benchmark"]

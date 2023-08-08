@@ -10,6 +10,11 @@ To get started with this project, you will need to have Docker installed on your
 docker run --gpus all \
 -e BENCHMARK_SIZE=10 \
 -e BATCH_SIZE=4 \
+-e REPORTING_URL=https://someurl.com \
+-e REPORTING_API_KEY=1234567890 \
+-e BENCHMARK_NAME=sdxl-benchmark-0 \
+-e OUTPUT_DIR=/images \
+-v $(pwd)/images:/images \
 saladtechnologies/sdxl-benchmark:latest
 ```
 
