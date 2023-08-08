@@ -18,5 +18,18 @@ docker run --gpus all \
 saladtechnologies/sdxl-benchmark:latest
 ```
 
+or
+
+```bash
+docker compose up
+```
+
 The `BENCHMARK_SIZE` and `BATCH_SIZE` environment variables can be adjusted to change the size of the benchmark (total images to generate) and the batch size (number of images submitted per request) used for inference. The default values are `10` and `4` respectively.
 
+## Build the image
+
+To build the image, run the following command:
+
+```bash
+docker build -t saladtechnologies/sdxl-benchmark:latest .
+```

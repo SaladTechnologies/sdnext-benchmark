@@ -26,10 +26,11 @@ const batchSize = parseInt(BATCH_SIZE, 10);
 const testJob: Text2ImageRequest = {
   prompt: "cat",
   steps: 35,
+  refiner_start: 20,
   width: 1216,
   height: 896,
   send_images: true,
-  cfg_scale: .7,
+  cfg_scale: 7,
 };
 
 /**
@@ -111,6 +112,18 @@ async function getSDNextLogs(): Promise<string[]> {
   const response = await fetch(url.toString());
   const json = await response.json();
   return json as string[];
+}
+
+async function enableRefiner(): Promise<void> {
+  console.log("Enabling refiner...");
+  const url = new URL("/sdapi/v1/options", SDNEXT_URL);
+  await fetch(url.toString(), {
+    method: "POST",
+    body: JSON.stringify({"sd_model_refiner": "refiner/sd_xl_refiner_1.0.safetensors"}),
+    headers: {
+      "Content-Type": "application/json"
+    },
+  });
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -196,7 +209,7 @@ async function main(): Promise<void> {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   await waitForServerToStart();
   await waitForModelToLoad();
-  
+  await enableRefiner();
 
   // This serves as the final pre-flight check
   let response = await submitJob(testJob);
