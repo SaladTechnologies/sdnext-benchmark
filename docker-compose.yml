@@ -17,7 +17,6 @@ services:
       REPORTING_API_KEY: ${REPORTING_API_KEY:-1234567890}
       BENCHMARK_ID: sdxl-benchmark-test
       OUTPUT_DIR: /images
-      SDNEXT_URL: http://127.0.0.1:7860
     volumes:
       - ./images:/images
     network_mode: host

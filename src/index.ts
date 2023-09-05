@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const {
-  SDNEXT_URL = "http://localhost:7860", 
+  SDNEXT_URL = "http://127.0.0.1:7860", 
   OUTPUT_DIR="images", 
   BENCHMARK_SIZE = "10", 
   BATCH_SIZE="4",
