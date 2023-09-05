@@ -162,3 +162,23 @@ export interface Device {
   unet: string
 }
 
+export type QueueMessage = {
+  messageId: string;
+  body: string;
+};
+
+export type GetJobFromQueueResponse = {
+  status: string;
+  messages: QueueMessage[];
+};
+
+export type SDJob = {
+  prompt: string;
+  id: string;
+  batch_size: number;
+  upload_url: string[];
+};
+
+export type DeleteQueueMessageResponse = {
+  message: "Message deleted";
+};

@@ -11,11 +11,12 @@ services:
               count: all
               capabilities: [ gpu ]
     environment:
-      BENCHMARK_SIZE: 100
-      BATCH_SIZE: 4
+      BENCHMARK_SIZE: -1
       REPORTING_URL: ${REPORTING_URL:-https://localhost:3000}
       REPORTING_API_KEY: ${REPORTING_API_KEY:-1234567890}
       BENCHMARK_ID: sdxl-benchmark-test
+      QUEUE_URL: ${QUEUE_URL:-https://localhost:9324}
+      QUEUE_NAME: ${QUEUE_NAME:-sdxl-benchmark-test}
       OUTPUT_DIR: /images
     volumes:
       - ./images:/images

@@ -1,4 +1,4 @@
-import { Text2ImageRequest, Text2ImageResponse, ServerStatus } from "./types";
+import { Text2ImageRequest, Text2ImageResponse, ServerStatus, SDJob, GetJobFromQueueResponse, DeleteQueueMessageResponse } from "./types";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -6,15 +6,17 @@ const {
   SDNEXT_URL = "http://127.0.0.1:7860", 
   OUTPUT_DIR="images", 
   BENCHMARK_SIZE = "10", 
-  BATCH_SIZE="4",
+  // BATCH_SIZE="4",
   REPORTING_URL = "http://localhost:3000",
   REPORTING_AUTH_HEADER = "Benchmark-Api-Key",
   REPORTING_API_KEY = "abc1234567890",
   BENCHMARK_ID = "test",
+  QUEUE_URL = "http://localhost:3001",
+  QUEUE_NAME = "test",
 } = process.env;
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
-const batchSize = parseInt(BATCH_SIZE, 10);
+// const batchSize = parseInt(BATCH_SIZE, 10);
 
 /**
  * This is the job that will be submitted to the server,
@@ -38,7 +40,7 @@ const testJob: Text2ImageRequest = {
  * Could be submitting stats to a database, or to an api, or just
  * printing to the console.
  */
-async function recordResult(result: { numImages: number, time: number, params: Text2ImageRequest}): Promise<void> {
+async function recordResult(result: { prompt: string, id: string, inference_time: number, output_urls: string[]}): Promise<void> {
   const url = new URL("/" + BENCHMARK_ID, REPORTING_URL);
   await fetch(url.toString(), {
     method: "POST",
@@ -56,8 +58,50 @@ async function recordResult(result: { numImages: number, time: number, params: T
  * 
  * @returns A job to submit to the server
  */
-async function getJob(): Promise<Text2ImageRequest> {
-  return {...testJob, batch_size: batchSize};
+async function getJob(): Promise<{request: Text2ImageRequest, messageId: string, uploadUrls: string[], jobId: string } | null> {
+  const url = new URL("/" + QUEUE_NAME, QUEUE_URL);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      [REPORTING_AUTH_HEADER]: REPORTING_API_KEY,
+    },
+  });
+  const queueMessage = await response.json() as GetJobFromQueueResponse;
+  if (queueMessage.messages?.length) {
+    const job = JSON.parse(queueMessage.messages[0].body) as SDJob;
+
+    return {
+      request: {
+        prompt: job.prompt,
+        steps: 35,
+        refiner_start: 20,
+        width: 1216,
+        height: 896,
+        send_images: true,
+        cfg_scale: 7,
+        batch_size: job.batch_size,
+      },
+      messageId: queueMessage.messages[0].messageId,
+      uploadUrls: job.upload_url,
+      jobId: job.id
+    };
+
+  } else {
+    return null;
+  }
+}
+
+async function markJobComplete(messageId: string): Promise<DeleteQueueMessageResponse> {
+  const url = new URL(`/${QUEUE_NAME}/${encodeURIComponent(messageId)}`, QUEUE_URL);
+  const response = await fetch(url.toString(), {
+    method: "DELETE",
+    headers: {
+      [REPORTING_AUTH_HEADER]: REPORTING_API_KEY,
+    },
+  });
+  const json = await response.json() as DeleteQueueMessageResponse;
+
+  return json;
 }
 
 /**
@@ -81,15 +125,19 @@ async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
 }
 
 /**
- * If you are actually trying to keep your images, you should
- * probably upload to a bucket or something. This is a placeholder
- * function that just writes the image to the local filesystem.
+ * Uploads an image to s3 using the signed url provided by the job
  */
-let numImages = 0;
-async function uploadImage(image: string): Promise<string> {
-  const filename = path.join(OUTPUT_DIR, `image-${numImages++}.jpg`);
-  await fs.writeFile(filename, Buffer.from(image, "base64"));
-  return filename;
+async function uploadImage(image: string, url: string): Promise<string> {
+  await fetch(url, {
+    method: "PUT",
+    body: Buffer.from(image, "base64"),
+    headers: {
+      "Content-Type": "image/jpeg",
+    },
+  });
+
+  // Return the full url, minus the query string
+  return url.split("?")[0];
 }
 
 /**
@@ -193,6 +241,8 @@ async function waitForModelToLoad(): Promise<void> {
   throw new Error("Timed out waiting for model to load");
 }
 
+
+
 /**
  * This is a helper function to pretty print an object,
  * useful for debugging.
@@ -224,26 +274,47 @@ async function main(): Promise<void> {
     console.log("Fetching Job...");
     const job = await getJob();
 
+    if (!job) {
+      console.log("No jobs available. Waiting...");
+      await sleep(1000);
+      continue;
+    }
+
+    const {request, messageId, uploadUrls, jobId } = job;
+
     console.log("Submitting Job...");
     const jobStart = Date.now();
-    response = await submitJob(job);
+    response = await submitJob(request);
     const jobEnd = Date.now();
     const jobElapsed = jobEnd - jobStart;
     console.log(`${response.images.length} images generated in ${jobElapsed}ms`);
-    recordResult({numImages: response.images.length, time: jobElapsed, params: job});
+    // recordResult({numImages: response.images.length, time: jobElapsed, params: request});
     numImages += response.images.length;
 
     // Handle the image uploads asynchronously, so we can start the next job
     // while the images are uploading.
-    Promise.all(response.images.map(uploadImage)).then((filenames) => {
-      console.log(filenames);
+    Promise.all(response.images.map((image, i) => {
+      return uploadImage(image, uploadUrls[i]);
+    })).then(async (downloadUrls) => {
+      await recordResult({
+        id: jobId,
+        prompt: request.prompt,
+        inference_time: jobElapsed,
+        output_urls: downloadUrls,
+      });
+      return downloadUrls;
+    }).then((downloadUrls) => {
+      markJobComplete(messageId);
+      prettyPrint({prompt: request.prompt, inference_time: jobElapsed, output_urls: downloadUrls})
     });
   }
 
   const end = Date.now();
   const elapsed = end - start;
-  console.log(`Generated ${numImages} images in ${elapsed}ms`);
-  console.log(`Average time per image: ${elapsed / numImages}ms`);
+  if (benchmarkSize > 0) {
+    console.log(`Generated ${numImages} images in ${elapsed}ms`);
+    console.log(`Average time per image: ${elapsed / numImages}ms`);
+  }
 }
 
 main();
