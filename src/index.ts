@@ -1,6 +1,7 @@
 import { Text2ImageRequest, Text2ImageResponse, ServerStatus, SDJob, GetJobFromQueueResponse, DeleteQueueMessageResponse } from "./types";
 import fs from "node:fs/promises";
-import path from "node:path";
+import { exec } from "node:child_process";
+import os from "node:os";
 
 const {
   SDNEXT_URL = "http://127.0.0.1:7860", 
@@ -35,12 +36,40 @@ const testJob: Text2ImageRequest = {
   cfg_scale: 7,
 };
 
+function getGpuType() : Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec("nvidia-smi --query-gpu=name --format=csv,noheader,nounits", (error, stdout, stderr) => {
+      if (error) {
+        reject("Error fetching GPU info or nvidia-smi might not be installed");
+        return;
+      }
+      resolve(stdout.trim());
+    });
+  });
+}
+
+function getSystemInfo() : { vCPU: number, MemGB: number } {
+  const vCPU = os.cpus().length;
+  const MemGB = Math.round((os.totalmem() / (1024 ** 3)) * 100) / 100; // Convert bytes to GB and round to 2 decimal places
+
+  return { vCPU, MemGB };
+}
+
 /**
  * You can replace this function with your own implementation.
  * Could be submitting stats to a database, or to an api, or just
  * printing to the console.
  */
-async function recordResult(result: { prompt: string, id: string, inference_time: number, output_urls: string[]}): Promise<void> {
+async function recordResult(result: {
+  prompt: string, 
+  id: string, 
+  inference_time: number, 
+  output_urls: string[], 
+  system_info: {
+    vCPU: number,
+    MemGB: number,
+    gpu: string
+  }}): Promise<void> {
   const url = new URL("/" + BENCHMARK_ID, REPORTING_URL);
   await fetch(url.toString(), {
     method: "POST",
@@ -255,6 +284,10 @@ const prettyPrint = (obj: any): void => console.log(JSON.stringify(obj, null, 2)
  * This is the main function that runs the benchmark.
  */
 async function main(): Promise<void> {
+  const gpu = await getGpuType();
+  const systemInfo = {...getSystemInfo(), gpu };
+  console.log("System Info:", JSON.stringify(systemInfo));
+
   const loadStart = Date.now();
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
   await waitForServerToStart();
@@ -301,6 +334,7 @@ async function main(): Promise<void> {
         prompt: request.prompt,
         inference_time: jobElapsed,
         output_urls: downloadUrls,
+        system_info: systemInfo
       });
       return downloadUrls;
     }).then((downloadUrls) => {
