@@ -2,7 +2,7 @@ import { Text2ImageRequest, Text2ImageResponse, ServerStatus } from "./types";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const { 
+const {
   SDNEXT_URL = "http://localhost:7860", 
   OUTPUT_DIR="images", 
   BENCHMARK_SIZE = "10", 

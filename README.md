@@ -12,7 +12,7 @@ docker run --gpus all \
 -e BATCH_SIZE=4 \
 -e REPORTING_URL=https://someurl.com \
 -e REPORTING_API_KEY=1234567890 \
--e BENCHMARK_NAME=sdxl-benchmark-0 \
+-e BENCHMARK_ID=sdxl-benchmark-0 \
 -e OUTPUT_DIR=/images \
 -v $(pwd)/images:/images \
 saladtechnologies/sdxl-benchmark:latest
@@ -31,5 +31,9 @@ The `BENCHMARK_SIZE` and `BATCH_SIZE` environment variables can be adjusted to c
 To build the image, run the following command:
 
 ```bash
-docker build -t saladtechnologies/sdxl-benchmark:latest .
+docker buildx build \
+-t saladtechnologies/sdxl-benchmark:latest \
+--provenance=false \
+--output type=docker \
+.
 ```

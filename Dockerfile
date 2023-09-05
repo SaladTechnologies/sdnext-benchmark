@@ -14,6 +14,9 @@ FROM saladtechnologies/sdnext-sdxl10:latest
 
 COPY --from=build /app/benchmark-worker ./benchmark-worker
 
+ENV HOST='127.0.0.1'
+ENV PORT=7860
+
 # Override the entrypoint to run the benchmark worker
 ENTRYPOINT []
 
@@ -29,4 +32,6 @@ CMD [\
   --ckpt ${CKPT} \
   --docs \
   --quick \
+  --server-name ${HOST} \
+  --port ${PORT} \
   & benchmark-worker/sdnext-benchmark"]
