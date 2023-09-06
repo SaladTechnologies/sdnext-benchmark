@@ -28,14 +28,23 @@ const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
  */
 const testJob: Text2ImageRequest = {
   prompt: "cat",
-  steps: 35,
+  steps: 20,
   refiner_start: 20,
+  denoising_strength: 0.43,
   width: 1216,
   height: 896,
   send_images: true,
   cfg_scale: 7,
+  enable_hr: true,
+  hr_second_pass_steps: 35,
+  hr_upscaler: "None"
 };
 
+
+/**
+ * 
+ * @returns The GPU type as reported by nvidia-smi
+ */
 function getGpuType() : Promise<string> {
   return new Promise((resolve, reject) => {
     exec("nvidia-smi --query-gpu=name --format=csv,noheader,nounits", (error, stdout, stderr) => {
@@ -47,6 +56,7 @@ function getGpuType() : Promise<string> {
     });
   });
 }
+
 
 function getSystemInfo() : { vCPU: number, MemGB: number } {
   const vCPU = os.cpus().length;
@@ -101,13 +111,8 @@ async function getJob(): Promise<{request: Text2ImageRequest, messageId: string,
 
     return {
       request: {
+        ...testJob,
         prompt: job.prompt,
-        steps: 35,
-        refiner_start: 20,
-        width: 1216,
-        height: 896,
-        send_images: true,
-        cfg_scale: 7,
         batch_size: job.batch_size,
       },
       messageId: queueMessage.messages[0].messageId,
