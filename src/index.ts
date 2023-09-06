@@ -1,13 +1,17 @@
-import { Text2ImageRequest, Text2ImageResponse, ServerStatus, SDJob, GetJobFromQueueResponse, DeleteQueueMessageResponse } from "./types";
-import fs from "node:fs/promises";
+import { 
+  Text2ImageRequest, 
+  Text2ImageResponse, 
+  ServerStatus, 
+  SDJob, 
+  GetJobFromQueueResponse, 
+  DeleteQueueMessageResponse 
+} from "./types";
 import { exec } from "node:child_process";
 import os from "node:os";
 
 const {
   SDNEXT_URL = "http://127.0.0.1:7860", 
-  OUTPUT_DIR="images", 
   BENCHMARK_SIZE = "10", 
-  // BATCH_SIZE="4",
   REPORTING_URL = "http://localhost:3000",
   REPORTING_AUTH_HEADER = "Benchmark-Api-Key",
   REPORTING_API_KEY = "abc1234567890",
@@ -17,7 +21,6 @@ const {
 } = process.env;
 
 const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
-// const batchSize = parseInt(BATCH_SIZE, 10);
 
 /**
  * This is the job that will be submitted to the server,
@@ -28,16 +31,28 @@ const benchmarkSize = parseInt(BENCHMARK_SIZE, 10);
  */
 const testJob: Text2ImageRequest = {
   prompt: "cat",
+
+  // We want to run the base model for 20 steps
   steps: 20,
-  refiner_start: 20,
-  denoising_strength: 0.43,
   width: 1216,
   height: 896,
   send_images: true,
   cfg_scale: 7,
+
+  /**
+   * We want to run the refiner for 15 steps, starting at step 20.
+   * This requires enabling high resolution, but setting the upscaler to "None".
+   *  */ 
   enable_hr: true,
+  hr_upscaler: "None",
+  
+  /**
+   * The number of steps run by the refiner is, for some reason,
+   * equal to denoising_strength * hr_second_pass_steps.
+   */
+  refiner_start: 20,
+  denoising_strength: 0.43,
   hr_second_pass_steps: 35,
-  hr_upscaler: "None"
 };
 
 
@@ -57,7 +72,10 @@ function getGpuType() : Promise<string> {
   });
 }
 
-
+/**
+ * 
+ * @returns The number of vCPUs and the total memory in GB
+ */
 function getSystemInfo() : { vCPU: number, MemGB: number } {
   const vCPU = os.cpus().length;
   const MemGB = Math.round((os.totalmem() / (1024 ** 3)) * 100) / 100; // Convert bytes to GB and round to 2 decimal places
@@ -69,6 +87,8 @@ function getSystemInfo() : { vCPU: number, MemGB: number } {
  * You can replace this function with your own implementation.
  * Could be submitting stats to a database, or to an api, or just
  * printing to the console.
+ * 
+ * In this case, we're sending the results to our reporting server.
  */
 async function recordResult(result: {
   prompt: string, 
@@ -93,7 +113,8 @@ async function recordResult(result: {
 
 
 /**
- * You can replace this function with your own implementation.
+ * This function gets a job from the queue, and returns it in a format that is usable
+ * by the SDNext server, along with additional information needed to finish processing the job.
  * 
  * @returns A job to submit to the server
  */
@@ -110,14 +131,32 @@ async function getJob(): Promise<{request: Text2ImageRequest, messageId: string,
     const job = JSON.parse(queueMessage.messages[0].body) as SDJob;
 
     return {
+      /**
+       * We need to return the jobId so we can send it to the reporting server
+       * to identify the results of the job.
+       */
+      jobId: job.id,
+      /**
+       * We only take the prompt and batch size from the job.
+       * The rest of the job is set to the default values.
+       *  */ 
       request: {
         ...testJob,
         prompt: job.prompt,
         batch_size: job.batch_size,
       },
+
+      /**
+       * We need to return the messageId so we can delete the message
+       * from the queue when we're done with it.
+       */
       messageId: queueMessage.messages[0].messageId,
+
+      /**
+       * We need to return the signed upload urls so we can upload the images
+       * to s3 when we're done with them.
+       */
       uploadUrls: job.upload_url,
-      jobId: job.id
     };
 
   } else {
@@ -125,6 +164,11 @@ async function getJob(): Promise<{request: Text2ImageRequest, messageId: string,
   }
 }
 
+/**
+ * Deletes a message from the queue, indicating it does not need to be processed again.
+ * @param messageId The id of the message to delete from the queue
+ * @returns 
+ */
 async function markJobComplete(messageId: string): Promise<DeleteQueueMessageResponse> {
   const url = new URL(`/${QUEUE_NAME}/${encodeURIComponent(messageId)}`, QUEUE_URL);
   const response = await fetch(url.toString(), {
@@ -160,6 +204,10 @@ async function submitJob(job: Text2ImageRequest): Promise<Text2ImageResponse> {
 
 /**
  * Uploads an image to s3 using the signed url provided by the job
+ * @param image The image to upload, base64 encoded
+ * @param url The signed url to upload the image to
+ * 
+ * @returns The download url of the uploaded image
  */
 async function uploadImage(image: string, url: string): Promise<string> {
   await fetch(url, {
@@ -186,7 +234,8 @@ async function getServerStatus(): Promise<ServerStatus> {
 }
 
 /**
- * 
+ * Uses the log endpoint to get the last 5 lines of the SDNext server logs.
+ * This is used to determine when the model has finished loading.
  * @returns The last 5 lines of the SDNext server logs
  */
 async function getSDNextLogs(): Promise<string[]> {
@@ -196,6 +245,10 @@ async function getSDNextLogs(): Promise<string[]> {
   return json as string[];
 }
 
+/**
+ * Enables the refiner model. This can take quite a while,
+ * but must be done before inference can be run.
+ */
 async function enableRefiner(): Promise<void> {
   console.log("Enabling refiner...");
   const url = new URL("/sdapi/v1/options", SDNEXT_URL);
@@ -289,17 +342,28 @@ const prettyPrint = (obj: any): void => console.log(JSON.stringify(obj, null, 2)
  * This is the main function that runs the benchmark.
  */
 async function main(): Promise<void> {
+  /**
+   * We get the GPU type and system info before we start the benchmark.
+   * We intentionally do not put this in a try/catch block, because if it fails,
+   * it means there isn't a gpu available, and we want to fail fast.
+   */
   const gpu = await getGpuType();
   const systemInfo = {...getSystemInfo(), gpu };
   console.log("System Info:", JSON.stringify(systemInfo));
 
   const loadStart = Date.now();
-  await fs.mkdir(OUTPUT_DIR, { recursive: true });
+
+  /**
+   * This is where we wait for the server to start and the model to load.
+   * It can take several minutes.
+   */
   await waitForServerToStart();
   await waitForModelToLoad();
   await enableRefiner();
 
-  // This serves as the final pre-flight check
+  /**
+   * We run a single job to verify that everything is working.
+   */
   let response = await submitJob(testJob);
 
   const loadEnd = Date.now();
@@ -318,7 +382,7 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const {request, messageId, uploadUrls, jobId } = job;
+    const { request, messageId, uploadUrls, jobId } = job;
 
     console.log("Submitting Job...");
     const jobStart = Date.now();
@@ -326,11 +390,13 @@ async function main(): Promise<void> {
     const jobEnd = Date.now();
     const jobElapsed = jobEnd - jobStart;
     console.log(`${response.images.length} images generated in ${jobElapsed}ms`);
-    // recordResult({numImages: response.images.length, time: jobElapsed, params: request});
+    
     numImages += response.images.length;
 
-    // Handle the image uploads asynchronously, so we can start the next job
-    // while the images are uploading.
+    /**
+     * By not awaiting this, we can get started on the next job
+     * while the images are uploading.
+     */
     Promise.all(response.images.map((image, i) => {
       return uploadImage(image, uploadUrls[i]);
     })).then(async (downloadUrls) => {
@@ -344,7 +410,7 @@ async function main(): Promise<void> {
       return downloadUrls;
     }).then((downloadUrls) => {
       markJobComplete(messageId);
-      prettyPrint({prompt: request.prompt, inference_time: jobElapsed, output_urls: downloadUrls})
+      prettyPrint({prompt: request.prompt, inference_time: jobElapsed, output_urls: downloadUrls});
     });
   }
 
@@ -356,4 +422,5 @@ async function main(): Promise<void> {
   }
 }
 
+// Start the benchmark
 main();

@@ -30,5 +30,5 @@
     "start": "node dist/index.js",
     "test": "mocha --recursive dist/test"
   },
-  "version": "0.0.1"
+  "version": "0.1.0"
 }

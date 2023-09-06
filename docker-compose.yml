@@ -11,13 +11,19 @@ services:
               count: all
               capabilities: [ gpu ]
     environment:
+      # We want this to run forever
       BENCHMARK_SIZE: -1
+
+      # This is used to identify the benchmark,
+      # and we can query by it in DynamoDB
+      BENCHMARK_ID: sdxl-benchmark-test
+
+      # This is the name of the queue that the benchmark
+      # will poll for work, via the QUEUE_URL
+      QUEUE_NAME: ${QUEUE_NAME:-sdxl-benchmark-test}
+
+      # You will need to set these values in the environment
+      # before running `docker-compose up`
       REPORTING_URL: ${REPORTING_URL:-https://localhost:3000}
       REPORTING_API_KEY: ${REPORTING_API_KEY:-1234567890}
-      BENCHMARK_ID: sdxl-benchmark-test
       QUEUE_URL: ${QUEUE_URL:-https://localhost:9324}
-      QUEUE_NAME: ${QUEUE_NAME:-sdxl-benchmark-test}
-      OUTPUT_DIR: /images
-    volumes:
-      - ./images:/images
-    network_mode: host
